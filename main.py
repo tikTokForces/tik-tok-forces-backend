@@ -718,9 +718,12 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
     
     # Add background task
     async def run_job():
+        import sys
+        print(f"DEBUG: Starting run_job for job {job.id}", file=sys.stderr, flush=True)
         # Get a new database session for the background task
         from database import AsyncSessionLocal
         async with AsyncSessionLocal() as bg_db:
+            print(f"DEBUG: Got database session for job {job.id}", file=sys.stderr, flush=True)
             try:
                 # Update job status to processing
                 await update_job_status(bg_db, job.id, "processing")
@@ -847,11 +850,14 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                     }
                 
                 # Run video processing in thread pool to avoid blocking event loop
+                import sys
+                print(f"DEBUG: Starting video processing in thread pool for job {job.id}", file=sys.stderr, flush=True)
                 loop = asyncio.get_event_loop()
                 processing_result = await loop.run_in_executor(
                     video_processing_executor,
                     process_video_sync
                 )
+                print(f"DEBUG: Video processing completed for job {job.id}", file=sys.stderr, flush=True)
                 
                 # Extract results
                 reports = processing_result["reports"]
@@ -865,6 +871,8 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                 music_group_error = processing_result["music_group_error"]
                 
                 # Update job as completed
+                import sys
+                print(f"DEBUG: Updating job {job.id} to completed", file=sys.stderr, flush=True)
                 await update_job_status(
                     bg_db, 
                     job.id, 
@@ -886,14 +894,23 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                         "footage_group_error": footage_group_error
                     }
                 )
+                print(f"DEBUG: Job {job.id} updated to completed successfully", file=sys.stderr, flush=True)
             except Exception as e:
                 # Update job as failed
-                await update_job_status(
-                    bg_db,
-                    job.id,
-                    "failed",
-                    error_message=str(e)
-                )
+                import traceback
+                import sys
+                error_detail = f"Error in run_job for job {job.id}: {str(e)}\n{traceback.format_exc()}"
+                print(f"ERROR: {error_detail}", file=sys.stderr, flush=True)
+                try:
+                    await update_job_status(
+                        bg_db,
+                        job.id,
+                        "failed",
+                        error_message=str(e)
+                    )
+                    print(f"DEBUG: Job {job.id} updated to failed", file=sys.stderr, flush=True)
+                except Exception as update_error:
+                    print(f"ERROR: Failed to update job status: {str(update_error)}", file=sys.stderr, flush=True)
     
     try:
         background_tasks.add_task(run_job)
