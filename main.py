@@ -12,6 +12,8 @@ import time
 import os
 import shutil
 import random
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from passlib.context import CryptContext
 
 # Password hashing context
@@ -106,6 +108,10 @@ except Exception as import_error:  # pragma: no cover
     ImagesAndVideoMassUniq = None  # fallback for import failure
 
 app = FastAPI(title="TikTok Forces API", version="1.0.0")
+
+# Thread pool executor for CPU-intensive tasks (video processing)
+# This prevents blocking the event loop
+video_processing_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="video_processing")
 
 # Enable CORS for React frontend (allow all origins for development)
 app.add_middleware(
@@ -616,46 +622,101 @@ class ProcessRequest(BaseModel):
 @app.post("/process")
 async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, db: AsyncSession = Depends(get_db)):
     """Process media with background task and database job tracking"""
-    if ImagesAndVideoMassUniq is None:
-        raise HTTPException(status_code=500, detail="Failed to load processing engine (startUniq.py)")
-
-    # Build input params
     try:
-        body = req.model_dump()  # pydantic v2
-    except Exception:
-        body = req.dict()  # fallback for pydantic v1
-    
-    # Optional group handling
-    music_group_files: list[str] = []
-    watermark_group_files: list[str] = []
-    footage_group_files: list[str] = []
+        if ImagesAndVideoMassUniq is None:
+            raise HTTPException(status_code=500, detail="Failed to load processing engine (startUniq.py)")
 
-    music_group_files, music_group_summary, resolved_group_id = await resolve_music_group(req.music_group_id, db)
-    if music_group_summary:
-        body["music_group_id"] = resolved_group_id
-        body["music_group"] = music_group_summary
-        body["music_group_files"] = music_group_files
+        # Build input params
+        try:
+            body = req.model_dump()  # pydantic v2
+        except Exception:
+            body = req.dict()  # fallback for pydantic v1
+        
+        # Optional group handling
+        music_group_files: list[str] = []
+        watermark_group_files: list[str] = []
+        footage_group_files: list[str] = []
 
-    watermark_group_files, watermark_group_summary, resolved_watermark_group_id = await resolve_watermark_group(req.watermark_group_id, db)
-    if watermark_group_summary:
-        body["watermark_group_id"] = resolved_watermark_group_id
-        body["watermark_group"] = watermark_group_summary
-        body["watermark_group_files"] = watermark_group_files
+        music_group_files, music_group_summary, resolved_group_id = await resolve_music_group(req.music_group_id, db)
+        if music_group_summary:
+            body["music_group_id"] = resolved_group_id
+            body["music_group"] = music_group_summary
+            body["music_group_files"] = music_group_files
 
-    footage_group_files, footage_group_summary, resolved_footage_group_id = await resolve_footage_group(req.footage_group_id, db)
-    if footage_group_summary:
-        body["footage_group_id"] = resolved_footage_group_id
-        body["footage_group"] = footage_group_summary
-        body["footage_group_files"] = footage_group_files
+        watermark_group_files, watermark_group_summary, resolved_watermark_group_id = await resolve_watermark_group(req.watermark_group_id, db)
+        if watermark_group_summary:
+            body["watermark_group_id"] = resolved_watermark_group_id
+            body["watermark_group"] = watermark_group_summary
+            body["watermark_group_files"] = watermark_group_files
+
+        footage_group_files, footage_group_summary, resolved_footage_group_id = await resolve_footage_group(req.footage_group_id, db)
+        if footage_group_summary:
+            body["footage_group_id"] = resolved_footage_group_id
+            body["footage_group"] = footage_group_summary
+            body["footage_group_files"] = footage_group_files
+        
+        # Auto-generate output_path if not provided
+        output_path_value = getattr(req, 'output_path', None)
+        if not output_path_value or (isinstance(output_path_value, str) and output_path_value.strip() == ''):
+            from datetime import datetime
+            timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+            video_path_value = getattr(req, 'video_path', None)
+            if video_path_value and isinstance(video_path_value, str) and video_path_value.strip():
+                try:
+                    video_name = Path(video_path_value).stem
+                except Exception:
+                    video_name = "video"
+            else:
+                video_name = "video"
+            output_dir = OUTPUT_VIDEOS_DIR / f"{video_name}_{timestamp}"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            output_path_str = str(output_dir)
+            body["output_path"] = output_path_str
+            req.output_path = output_path_str
+        else:
+            # If output_path is provided but is a directory, create subdirectory
+            output_path_obj = Path(output_path_value)
+            if output_path_obj.exists() and output_path_obj.is_dir():
+                from datetime import datetime
+                timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+                video_path_value = getattr(req, 'video_path', None)
+                if video_path_value and isinstance(video_path_value, str) and video_path_value.strip():
+                    try:
+                        video_name = Path(video_path_value).stem
+                    except Exception:
+                        video_name = "video"
+                else:
+                    video_name = "video"
+                output_dir = output_path_obj / f"{video_name}_{timestamp}"
+                output_dir.mkdir(parents=True, exist_ok=True)
+                output_path_str = str(output_dir)
+                body["output_path"] = output_path_str
+                req.output_path = output_path_str
+    except HTTPException:
+        raise
+    except Exception as e:
+        import traceback
+        import sys
+        error_detail = f"Error in process_media (before job creation): {str(e)}\n{traceback.format_exc()}"
+        print(f"ERROR: {error_detail}", file=sys.stderr, flush=True)
+        raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
     
     # Create job in database
-    job = await create_job(
-        db=db,
-        job_type="process",
-        input_params=body,
-        status="pending"
-    )
-
+    try:
+        job = await create_job(
+            db=db,
+            job_type="process",
+            input_params=body,
+            status="pending"
+        )
+    except Exception as e:
+        import traceback
+        import sys
+        error_detail = f"Error creating job: {str(e)}\n{traceback.format_exc()}"
+        print(f"ERROR: {error_detail}", file=sys.stderr, flush=True)
+        raise HTTPException(status_code=500, detail=f"Failed to create job: {str(e)}")
+    
+    # Add background task
     async def run_job():
         # Get a new database session for the background task
         from database import AsyncSessionLocal
@@ -700,75 +761,108 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                 if req.params:
                     overrides.update(req.params)
                 
-                # Run the processing
-                engine = ImagesAndVideoMassUniq()
-                try:
-                    engine.set_overrides(overrides)
-                except Exception:
-                    pass
-                engine.start(req.mode, str(req.count))
+                # Define synchronous video processing function to run in thread pool
+                def process_video_sync():
+                    """Synchronous video processing function that runs in a separate thread"""
+                    # Run the processing
+                    engine = ImagesAndVideoMassUniq()
+                    try:
+                        engine.set_overrides(overrides)
+                    except Exception:
+                        pass
+                    engine.start(req.mode, str(req.count))
+                    
+                    # Get reports
+                    try:
+                        reports = engine.get_reports()
+                    except Exception:
+                        reports = []
+                    
+                    # Extract video paths from reports
+                    video_paths = []
+                    if reports:
+                        for report in reports:
+                            if isinstance(report, dict) and report.get('output'):
+                                video_paths.append(report['output'])
+                    
+                    base_video_paths = list(video_paths)
+                    processing_paths = list(video_paths)
+
+                    footage_outputs: list[Dict[str, Any]] = []
+                    footage_group_error: Optional[str] = None
+                    if footage_group_files_local:
+                        footage_opacity_value = body.get("footage_opacity")
+                        footage_outputs, footage_group_error = apply_footage_group_to_videos(
+                            processing_paths,
+                            footage_group_files_local,
+                            footage_opacity_value,
+                        )
+                        if footage_outputs:
+                            processing_paths = [
+                                item["output_video"] for item in footage_outputs if item.get("output_video")
+                            ]
+
+                    watermark_outputs: list[Dict[str, Any]] = []
+                    watermark_group_error: Optional[str] = None
+                    if watermark_group_files_local:
+                        target_paths = processing_paths if processing_paths else base_video_paths
+                        watermark_outputs, watermark_group_error = apply_watermark_group_to_videos(
+                            target_paths,
+                            watermark_group_files_local,
+                            body.get("watermark_size"),
+                            body.get("watermark_opacity"),
+                        )
+                        if watermark_outputs:
+                            processing_paths = [
+                                item["output_video"] for item in watermark_outputs if item.get("output_video")
+                            ]
+
+                    music_outputs: list[Dict[str, Any]] = []
+                    music_group_error: Optional[str] = None
+                    if music_group_files_local:
+                        target_paths = processing_paths if processing_paths else base_video_paths
+                        music_outputs, music_group_error = apply_music_group_to_videos(
+                            target_paths,
+                            music_group_files_local,
+                            body.get("music_volume"),
+                            body.get("music_delete_video_audio"),
+                        )
+                        if music_outputs:
+                            processing_paths = [
+                                item["output_video"] for item in music_outputs if item.get("output_video")
+                            ]
+
+                    final_video_paths = processing_paths if processing_paths else base_video_paths
+                    
+                    return {
+                        "reports": reports,
+                        "base_video_paths": base_video_paths,
+                        "final_video_paths": final_video_paths,
+                        "footage_outputs": footage_outputs,
+                        "footage_group_error": footage_group_error,
+                        "watermark_outputs": watermark_outputs,
+                        "watermark_group_error": watermark_group_error,
+                        "music_outputs": music_outputs,
+                        "music_group_error": music_group_error,
+                    }
                 
-                # Get reports
-                try:
-                    reports = engine.get_reports()
-                except Exception:
-                    reports = []
+                # Run video processing in thread pool to avoid blocking event loop
+                loop = asyncio.get_event_loop()
+                processing_result = await loop.run_in_executor(
+                    video_processing_executor,
+                    process_video_sync
+                )
                 
-                # Extract video paths from reports
-                video_paths = []
-                if reports:
-                    for report in reports:
-                        if isinstance(report, dict) and report.get('output'):
-                            video_paths.append(report['output'])
-                
-                base_video_paths = list(video_paths)
-                processing_paths = list(video_paths)
-
-                footage_outputs: list[Dict[str, Any]] = []
-                footage_group_error: Optional[str] = None
-                if footage_group_files_local:
-                    footage_opacity_value = body.get("footage_opacity")
-                    footage_outputs, footage_group_error = apply_footage_group_to_videos(
-                        processing_paths,
-                        footage_group_files_local,
-                        footage_opacity_value,
-                    )
-                    if footage_outputs:
-                        processing_paths = [
-                            item["output_video"] for item in footage_outputs if item.get("output_video")
-                        ]
-
-                watermark_outputs: list[Dict[str, Any]] = []
-                watermark_group_error: Optional[str] = None
-                if watermark_group_files_local:
-                    target_paths = processing_paths if processing_paths else base_video_paths
-                    watermark_outputs, watermark_group_error = apply_watermark_group_to_videos(
-                        target_paths,
-                        watermark_group_files_local,
-                        body.get("watermark_size"),
-                        body.get("watermark_opacity"),
-                    )
-                    if watermark_outputs:
-                        processing_paths = [
-                            item["output_video"] for item in watermark_outputs if item.get("output_video")
-                        ]
-
-                music_outputs: list[Dict[str, Any]] = []
-                music_group_error: Optional[str] = None
-                if music_group_files_local:
-                    target_paths = processing_paths if processing_paths else base_video_paths
-                    music_outputs, music_group_error = apply_music_group_to_videos(
-                        target_paths,
-                        music_group_files_local,
-                        body.get("music_volume"),
-                        body.get("music_delete_video_audio"),
-                    )
-                    if music_outputs:
-                        processing_paths = [
-                            item["output_video"] for item in music_outputs if item.get("output_video")
-                        ]
-
-                final_video_paths = processing_paths if processing_paths else base_video_paths
+                # Extract results
+                reports = processing_result["reports"]
+                base_video_paths = processing_result["base_video_paths"]
+                final_video_paths = processing_result["final_video_paths"]
+                footage_outputs = processing_result["footage_outputs"]
+                footage_group_error = processing_result["footage_group_error"]
+                watermark_outputs = processing_result["watermark_outputs"]
+                watermark_group_error = processing_result["watermark_group_error"]
+                music_outputs = processing_result["music_outputs"]
+                music_group_error = processing_result["music_group_error"]
                 
                 # Update job as completed
                 await update_job_status(
@@ -800,8 +894,16 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                     "failed",
                     error_message=str(e)
                 )
-
-    background_tasks.add_task(run_job)
+    
+    try:
+        background_tasks.add_task(run_job)
+    except Exception as e:
+        import traceback
+        import sys
+        error_detail = f"Error adding background task: {str(e)}\n{traceback.format_exc()}"
+        print(f"ERROR: {error_detail}", file=sys.stderr, flush=True)
+        raise HTTPException(status_code=500, detail=f"Failed to add background task: {str(e)}")
+    
     return {
         "status": "started", 
         "job_id": str(job.id),
@@ -1220,9 +1322,11 @@ ASSETS_DIR = PROJECT_ROOT / "assets"
 MUSICS_DIR = ASSETS_DIR / "musics"
 WATERMARKS_DIR = ASSETS_DIR / "watermarks"
 FOOTAGES_DIR = ASSETS_DIR / "footages"
+VIDEOS_DIR = ASSETS_DIR / "videos"
+OUTPUT_VIDEOS_DIR = PROJECT_ROOT / "output_videos"
 
 # Ensure directories exist
-for dir_path in [ASSETS_DIR, MUSICS_DIR, WATERMARKS_DIR, FOOTAGES_DIR]:
+for dir_path in [ASSETS_DIR, MUSICS_DIR, WATERMARKS_DIR, FOOTAGES_DIR, VIDEOS_DIR, OUTPUT_VIDEOS_DIR]:
     dir_path.mkdir(parents=True, exist_ok=True)
 
 
@@ -1418,6 +1522,33 @@ async def upload_footage(file: UploadFile = File(...)):
     
     # Save file
     file_path = FOOTAGES_DIR / file.filename
+    try:
+        with open(file_path, "wb") as buffer:
+            shutil.copyfileobj(file.file, buffer)
+        
+        stat = file_path.stat()
+        return {
+            "status": "uploaded",
+            "name": file.filename,
+            "path": str(file_path),
+            "size": stat.st_size,
+            "size_mb": round(stat.st_size / (1024 * 1024), 2)
+        }
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=f"Failed to upload file: {str(e)}")
+
+
+@app.post("/assets/videos/upload")
+async def upload_video(file: UploadFile = File(...)):
+    """Upload a video file"""
+    # Validate file extension
+    allowed_extensions = ['.mp4', '.mov', '.avi', '.mkv', '.webm', '.flv', '.wmv']
+    file_ext = Path(file.filename).suffix.lower()
+    if file_ext not in allowed_extensions:
+        raise HTTPException(status_code=400, detail=f"Invalid file type. Allowed: {', '.join(allowed_extensions)}")
+    
+    # Save file
+    file_path = VIDEOS_DIR / file.filename
     try:
         with open(file_path, "wb") as buffer:
             shutil.copyfileobj(file.file, buffer)
