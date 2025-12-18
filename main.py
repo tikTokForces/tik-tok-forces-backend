@@ -767,18 +767,27 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                 # Define synchronous video processing function to run in thread pool
                 def process_video_sync():
                     """Synchronous video processing function that runs in a separate thread"""
+                    import sys
+                    print(f"DEBUG: process_video_sync started for job {job.id}, mode={req.mode}, count={req.count}", file=sys.stderr, flush=True)
                     # Run the processing
                     engine = ImagesAndVideoMassUniq()
                     try:
                         engine.set_overrides(overrides)
-                    except Exception:
+                        print(f"DEBUG: Engine overrides set for job {job.id}", file=sys.stderr, flush=True)
+                    except Exception as e:
+                        print(f"DEBUG: Warning - failed to set overrides: {e}", file=sys.stderr, flush=True)
                         pass
+                    print(f"DEBUG: Starting engine.start() for job {job.id}", file=sys.stderr, flush=True)
                     engine.start(req.mode, str(req.count))
+                    print(f"DEBUG: engine.start() completed for job {job.id}", file=sys.stderr, flush=True)
                     
                     # Get reports
+                    import sys
                     try:
                         reports = engine.get_reports()
-                    except Exception:
+                        print(f"DEBUG: Got {len(reports)} reports for job {job.id}", file=sys.stderr, flush=True)
+                    except Exception as e:
+                        print(f"DEBUG: Error getting reports: {e}", file=sys.stderr, flush=True)
                         reports = []
                     
                     # Extract video paths from reports
