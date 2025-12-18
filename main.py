@@ -81,12 +81,13 @@ from database.crud import (
 )
 
 # Ensure we can import startUniq.py from the STEP1.../code directory
-
-CODE_DIR = Path("/Users/maxsymonenko/tik_tok_forces_api/unicalizator/STEP1-MassMetadataUnifyerEndEffects/code").resolve()
-CODE_DIR2 = Path("/Users/maxsymonenko/tik_tok_forces_api/unicalizator/STEP5-MassFootagesAdd/code").resolve()
-CODE_DIR4 = Path("/Users/maxsymonenko/tik_tok_forces_api/STEP4-MassMusicAdd/code").resolve()
-CODE_DIR19 = Path("/Users/maxsymonenko/tik_tok_forces_api/STEP19-SubtitlesOverlays/code").resolve()
-CODE_DIR20 = Path("/Users/maxsymonenko/tik_tok_forces_api/STEP20-WaterMarkOverlays/code").resolve()
+# Video processor paths - configurable via environment variables
+VIDEO_PROCESSOR_BASE = Path(os.getenv("VIDEO_PROCESSOR_BASE", "/opt/tik-tok-forces-video-processor"))
+CODE_DIR = Path(os.getenv("STEP1_CODE_DIR", str(VIDEO_PROCESSOR_BASE / "unicalizator/STEP1-MassMetadataUnifyerEndEffects/code"))).resolve()
+CODE_DIR2 = Path(os.getenv("STEP5_CODE_DIR", str(VIDEO_PROCESSOR_BASE / "unicalizator/STEP5-MassFootagesAdd/code"))).resolve()
+CODE_DIR4 = Path(os.getenv("STEP4_CODE_DIR", str(VIDEO_PROCESSOR_BASE / "STEP4-MassMusicAdd/code"))).resolve()
+CODE_DIR19 = Path(os.getenv("STEP19_CODE_DIR", str(VIDEO_PROCESSOR_BASE / "STEP19-SubtitlesOverlays/code"))).resolve()
+CODE_DIR20 = Path(os.getenv("STEP20_CODE_DIR", str(VIDEO_PROCESSOR_BASE / "STEP20-WaterMarkOverlays/code"))).resolve()
 
 if str(CODE_DIR) not in sys.path:
     sys.path.insert(0, str(CODE_DIR))
@@ -946,11 +947,11 @@ async def process_media_sync(req: ProcessRequest, db: AsyncSession = Depends(get
 @app.post("/footages_add")
 async def footages_add(background_tasks: BackgroundTasks):
     """Run STEP5 MassFootagesAdd script as a background task."""
-    script_path = Path("/Users/maxsymonenko/tik_tok_forces_api/unicalizator/STEP5-MassFootagesAdd/code/massFootages.py").resolve()
+    script_path = CODE_DIR2 / "massFootages.py"
 
     def run_script():
         # Use venv python if available, else fallback to system python
-        venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+        venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
         python_bin = str(venv_python) if venv_python.exists() else sys.executable
         try:
             subprocess.run([python_bin, str(script_path)], cwd=str(script_path.parent), check=True)
@@ -969,8 +970,8 @@ class FootagesRequest(BaseModel):
 
 @app.post("/footages_add_sync")
 async def footages_add_sync(req: FootagesRequest):
-    script_path = Path("/Users/maxsymonenko/tik_tok_forces_api/unicalizator/STEP5-MassFootagesAdd/code/massFootages.py").resolve()
-    venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+    script_path = CODE_DIR2 / "massFootages.py"
+    venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
     cmd = [python_bin, str(script_path), "--video", req.video, "--footage", req.footage]
     if req.output_dir:
@@ -993,8 +994,8 @@ class MusicRequest(BaseModel):
 
 @app.post("/music_add_sync")
 async def music_add_sync(req: MusicRequest):
-    script_path = Path("/Users/maxsymonenko/tik_tok_forces_api/STEP4-MassMusicAdd/code/massMusic.py").resolve()
-    venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+    script_path = CODE_DIR4 / "massMusic.py"
+    venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
     # Validate input files exist
     if not Path(req.video).expanduser().exists():
@@ -1028,8 +1029,8 @@ class WatermarkRequest(BaseModel):
 
 @app.post("/watermark_add_sync")
 async def watermark_add_sync(req: WatermarkRequest):
-    script_path = Path("/Users/maxsymonenko/tik_tok_forces_api/STEP20-WaterMarkOverlays/code/waterMarkOverlays.py").resolve()
-    venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+    script_path = CODE_DIR20 / "waterMarkOverlays.py"
+    venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
     # Validate input files
     if not Path(req.video).expanduser().exists():
@@ -1073,8 +1074,8 @@ class SubtitlesRequest(BaseModel):
 
 @app.post("/subtitles_add_sync")
 async def subtitles_add_sync(req: SubtitlesRequest):
-    script_path = Path("/Users/maxsymonenko/tik_tok_forces_api/STEP19-SubtitlesOverlays/code/subtitlesOverlays.py").resolve()
-    venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+    script_path = CODE_DIR19 / "subtitlesOverlays.py"
+    venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
     # Validate input files
     if not Path(req.video).expanduser().exists():
@@ -1146,8 +1147,8 @@ async def subtitles_add_async(req: SubtitlesRequest, background_tasks: Backgroun
             try:
                 await update_job_status(bg_db, job.id, "processing")
                 
-                script_path = Path("/Users/maxsymonenko/tik_tok_forces_api/STEP19-SubtitlesOverlays/code/subtitlesOverlays.py").resolve()
-                venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+                script_path = CODE_DIR19 / "subtitlesOverlays.py"
+                venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
                 python_bin = str(venv_python) if venv_python.exists() else sys.executable
                 
                 cmd = [python_bin, str(script_path), "--video", req.video]
@@ -1502,7 +1503,7 @@ def apply_music_group_to_videos(
     if not script_path.exists():
         return outputs, "STEP4 massMusic script not found."
 
-    venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+    venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
 
     for idx, video_path in enumerate(video_paths):
@@ -1581,7 +1582,7 @@ def apply_watermark_group_to_videos(
     if not script_path.exists():
         return outputs, "STEP20 WaterMarkOverlays script not found."
 
-    venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+    venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
 
     for idx, video_path in enumerate(video_paths):
@@ -1665,7 +1666,7 @@ def apply_footage_group_to_videos(
     if not script_path.exists():
         return outputs, "STEP5 MassFootagesAdd script not found."
 
-    venv_python = Path("/Users/maxsymonenko/tik_tok_forces_api/.venv/bin/python")
+    venv_python = Path(os.getenv("VIDEO_PROCESSOR_VENV", str(VIDEO_PROCESSOR_BASE / ".venv/bin/python")))
     python_bin = str(venv_python) if venv_python.exists() else sys.executable
 
     for idx, video_path in enumerate(video_paths):
