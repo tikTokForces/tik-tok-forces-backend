@@ -1,0 +1,22 @@
+# FastAPI and Web Framework
+fastapi>=0.109.0
+uvicorn[standard]>=0.27.0
+pydantic>=2.6.0
+python-multipart>=0.0.7
+
+# Database
+sqlalchemy>=2.0.25
+alembic>=1.13.0
+asyncpg>=0.29.0  # For PostgreSQL async support
+aiosqlite>=0.20.0  # For SQLite async support
+# aiomysql==0.2.0  # Uncomment for MySQL support
+
+# Environment variables
+python-dotenv>=1.0.0
+
+# Password hashing for user authentication
+passlib[bcrypt]>=1.7.4
+
+# Video processing (based on your existing scripts)
+# Add any other dependencies your processing scripts need
+
