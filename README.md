@@ -27,3 +27,4 @@ See `.env.example` for required variables.
 ## API Documentation
 
 Once running, visit: http://localhost:8000/docs
+# CI/CD Test
