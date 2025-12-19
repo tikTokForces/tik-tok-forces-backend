@@ -595,9 +595,9 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
     }
 
 
-class PostVideoRequest(BaseModel):
-    """Request model for posting videos"""
-    final_output_videos: list[Dict[str, Any]]  # Array of video objects
+class VideoPostItem(BaseModel):
+    """Single video post item with user and proxy"""
+    final_output_video: str  # Path to the video file
     user_email: str
     user_password: str
     user_username: str
@@ -605,6 +605,11 @@ class PostVideoRequest(BaseModel):
     proxy_password: str
     proxy_ip: str
     proxy_port: int
+
+
+class PostVideoRequest(BaseModel):
+    """Request model for posting videos - array of video-user-proxy pairs"""
+    videos: list[VideoPostItem]  # Array of video objects, each with its own user and proxy
 
 
 @app.post("/job/{job_id}/post")
@@ -643,28 +648,49 @@ async def post_video_endpoint(
     log_data = {
         "job_id": str(job.id),
         "job_status": job.status,
-        "final_output_videos": req.final_output_videos,
-        "user_email": req.user_email,
-        "user_username": req.user_username,
-        "proxy_ip": req.proxy_ip,
-        "proxy_port": req.proxy_port,
-        "proxy_login": req.proxy_login,
-        "video_count": len(req.final_output_videos),
+        "videos": [
+            {
+                "final_output_video": video.final_output_video,
+                "user_email": video.user_email,
+                "user_username": video.user_username,
+                "proxy_ip": video.proxy_ip,
+                "proxy_port": video.proxy_port,
+                "proxy_login": video.proxy_login
+            }
+            for video in req.videos
+        ],
+        "video_count": len(req.videos),
         "timestamp": datetime.utcnow().isoformat()
     }
     
     # Full data with passwords (for internal logging)
     full_log_data = {
-        **log_data,
-        "user_password": req.user_password,  # ⚠️ Sensitive - logged for debugging
-        "proxy_password": req.proxy_password  # ⚠️ Sensitive - logged for debugging
+        "job_id": str(job.id),
+        "job_status": job.status,
+        "videos": [
+            {
+                "final_output_video": video.final_output_video,
+                "user_email": video.user_email,
+                "user_password": video.user_password,  # ⚠️ Sensitive - logged for debugging
+                "user_username": video.user_username,
+                "proxy_ip": video.proxy_ip,
+                "proxy_port": video.proxy_port,
+                "proxy_login": video.proxy_login,
+                "proxy_password": video.proxy_password  # ⚠️ Sensitive - logged for debugging
+            }
+            for video in req.videos
+        ],
+        "video_count": len(req.videos),
+        "timestamp": datetime.utcnow().isoformat()
     }
     
     # Log to console
     print(f"DEBUG: Post video request for job {job.id}", file=sys.stderr, flush=True)
-    print(f"DEBUG: User: {req.user_username} ({req.user_email})", file=sys.stderr, flush=True)
-    print(f"DEBUG: Proxy: {req.proxy_ip}:{req.proxy_port} (login: {req.proxy_login})", file=sys.stderr, flush=True)
-    print(f"DEBUG: Videos to post: {len(req.final_output_videos)}", file=sys.stderr, flush=True)
+    print(f"DEBUG: Videos to post: {len(req.videos)}", file=sys.stderr, flush=True)
+    for idx, video in enumerate(req.videos, 1):
+        print(f"DEBUG: Video {idx}: {video.final_output_video}", file=sys.stderr, flush=True)
+        print(f"DEBUG:   User: {video.user_username} ({video.user_email})", file=sys.stderr, flush=True)
+        print(f"DEBUG:   Proxy: {video.proxy_ip}:{video.proxy_port} (login: {video.proxy_login})", file=sys.stderr, flush=True)
     
     # Get client info
     client_ip = request.client.host if request.client else None
@@ -684,7 +710,7 @@ async def post_video_endpoint(
             response_body={
                 "status": "logged",
                 "job_id": str(job.id),
-                "videos_count": len(req.final_output_videos),
+                "videos_count": len(req.videos),
                 "message": "Post request logged successfully"
             },
             ip_address=client_ip,
@@ -718,11 +744,7 @@ async def post_video_endpoint(
         "status": "logged",
         "job_id": str(job.id),
         "job_status": job.status,
-        "videos_count": len(req.final_output_videos),
-        "user_username": req.user_username,
-        "user_email": req.user_email,
-        "proxy_ip": req.proxy_ip,
-        "proxy_port": req.proxy_port,
+        "videos_count": len(req.videos),
         "message": "Post request logged successfully. Videos will be posted using provided credentials.",
         "logged_at": datetime.utcnow().isoformat()
     }
