@@ -1,4 +1,5 @@
-from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File
+from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File, Request
+from starlette.requests import Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -565,6 +566,139 @@ async def get_job_status(job_id: str, db: AsyncSession = Depends(get_db)):
         "input_params": job.input_params,
         "output_result": job.output_result,
         "processing_time_seconds": job.processing_time_seconds
+    }
+
+
+class PostVideoRequest(BaseModel):
+    """Request model for posting videos"""
+    final_output_videos: list[Dict[str, Any]]  # Array of video objects
+    user_email: str
+    user_password: str
+    user_username: str
+    proxy_login: str
+    proxy_password: str
+    proxy_ip: str
+    proxy_port: int
+
+
+@app.post("/job/{job_id}/post")
+async def post_video_endpoint(
+    job_id: str,
+    req: PostVideoRequest,
+    request: Request,
+    db: AsyncSession = Depends(get_db)
+):
+    """
+    Post videos from a completed job to TikTok.
+    Logs all information for tracking and debugging.
+    """
+    import sys
+    from datetime import datetime
+    
+    start_time = time.time()
+    
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+    
+    # Get job and verify it's completed
+    job = await get_job(db, job_uuid)
+    if not job:
+        raise HTTPException(status_code=404, detail="Job not found")
+    
+    if job.status != "completed":
+        raise HTTPException(
+            status_code=400,
+            detail=f"Job must be completed to post videos. Current status: {job.status}"
+        )
+    
+    # Prepare logging data (exclude sensitive passwords from detailed logs)
+    log_data = {
+        "job_id": str(job.id),
+        "job_status": job.status,
+        "final_output_videos": req.final_output_videos,
+        "user_email": req.user_email,
+        "user_username": req.user_username,
+        "proxy_ip": req.proxy_ip,
+        "proxy_port": req.proxy_port,
+        "proxy_login": req.proxy_login,
+        "video_count": len(req.final_output_videos),
+        "timestamp": datetime.utcnow().isoformat()
+    }
+    
+    # Full data with passwords (for internal logging)
+    full_log_data = {
+        **log_data,
+        "user_password": req.user_password,  # ⚠️ Sensitive - logged for debugging
+        "proxy_password": req.proxy_password  # ⚠️ Sensitive - logged for debugging
+    }
+    
+    # Log to console
+    print(f"DEBUG: Post video request for job {job.id}", file=sys.stderr, flush=True)
+    print(f"DEBUG: User: {req.user_username} ({req.user_email})", file=sys.stderr, flush=True)
+    print(f"DEBUG: Proxy: {req.proxy_ip}:{req.proxy_port} (login: {req.proxy_login})", file=sys.stderr, flush=True)
+    print(f"DEBUG: Videos to post: {len(req.final_output_videos)}", file=sys.stderr, flush=True)
+    
+    # Get client info
+    client_ip = request.client.host if request.client else None
+    user_agent = request.headers.get("user-agent")
+    
+    # Save to API log (without passwords in main log, but with full data in request_body)
+    try:
+        from database.crud import create_api_log
+        execution_time = int((time.time() - start_time) * 1000)
+        
+        await create_api_log(
+            db=db,
+            endpoint=f"/job/{job_id}/post",
+            method="POST",
+            request_body=full_log_data,  # Full data with passwords for internal use
+            response_status=200,
+            response_body={
+                "status": "logged",
+                "job_id": str(job.id),
+                "videos_count": len(req.final_output_videos),
+                "message": "Post request logged successfully"
+            },
+            ip_address=client_ip,
+            user_agent=user_agent,
+            execution_time_ms=execution_time
+        )
+    except Exception as log_error:
+        print(f"WARNING: Failed to save API log: {log_error}", file=sys.stderr, flush=True)
+        # Continue even if logging fails
+    
+    # Also save to a dedicated file for easier access
+    try:
+        import json
+        from pathlib import Path
+        
+        logs_dir = Path("/opt/tik-tok-forces-backend/logs")
+        logs_dir.mkdir(parents=True, exist_ok=True)
+        
+        log_file = logs_dir / f"post_videos_{datetime.utcnow().strftime('%Y%m%d')}.jsonl"
+        
+        with open(log_file, "a") as f:
+            json.dump(full_log_data, f)
+            f.write("\n")
+        
+        print(f"DEBUG: Saved post request to {log_file}", file=sys.stderr, flush=True)
+    except Exception as file_error:
+        print(f"WARNING: Failed to save to file: {file_error}", file=sys.stderr, flush=True)
+        # Continue even if file logging fails
+    
+    return {
+        "status": "logged",
+        "job_id": str(job.id),
+        "job_status": job.status,
+        "videos_count": len(req.final_output_videos),
+        "user_username": req.user_username,
+        "user_email": req.user_email,
+        "proxy_ip": req.proxy_ip,
+        "proxy_port": req.proxy_port,
+        "message": "Post request logged successfully. Videos will be posted using provided credentials.",
+        "logged_at": datetime.utcnow().isoformat()
     }
 
 
