@@ -1065,7 +1065,8 @@ async def get_all_users(
     offset: int = 0
 ) -> List[User]:
     """Get all users"""
-    query = select(User).order_by(desc(User.created_at))
+    from sqlalchemy.orm import selectinload
+    query = select(User).options(selectinload(User.group_memberships)).order_by(desc(User.created_at))
     
     if not include_inactive:
         query = query.where(User.is_active == True)
