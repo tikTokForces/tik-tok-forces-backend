@@ -2978,9 +2978,9 @@ async def create_user_endpoint(req: CreateUserRequest, db: AsyncSession = Depend
         raise HTTPException(status_code=400, detail="Username already exists")
     
     # Check if email already exists
-        existing_email = await get_user_by_email(db, req.email)
-        if existing_email:
-            raise HTTPException(status_code=400, detail="Email already exists")
+    existing_email = await get_user_by_email(db, req.email)
+    if existing_email:
+        raise HTTPException(status_code=400, detail="Email already exists")
     
     # Hash password
     password_hash = hash_password(req.password)
