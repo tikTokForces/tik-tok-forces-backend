@@ -2977,7 +2977,7 @@ async def list_users(
                 "proxy_id": str(user.proxy_id),
                 "created_at": user.created_at.isoformat() if user.created_at else None,
                 "last_login_at": user.last_login_at.isoformat() if user.last_login_at else None,
-                "group_count": len(user.group_memberships)
+                "group_count": len(user.group_memberships) if user.group_memberships else 0
             }
             for user in users
         ]
@@ -3038,6 +3038,36 @@ async def create_user_endpoint(req: CreateUserRequest, db: AsyncSession = Depend
         if "unique" in str(e).lower() or "duplicate" in str(e).lower():
             raise HTTPException(status_code=400, detail="Username or email already exists")
         raise HTTPException(status_code=500, detail=f"Failed to create user: {str(e)}")
+
+
+@app.get("/users/groups")
+async def list_user_groups(db: AsyncSession = Depends(get_db)):
+    """List all user groups with their members"""
+    from database.crud import get_all_user_groups
+    groups = await get_all_user_groups(db)
+    return {
+        "groups": [
+            {
+                "id": str(group.id),
+                "name": group.name,
+                "description": group.description,
+                "color": group.color,
+                "permissions": group.permissions,
+                "member_count": len(group.members) if group.members else 0,
+                "members": [
+                    {
+                        "user_id": str(member.user_id),
+                        "role": member.role,
+                        "added_at": member.added_at.isoformat() if member.added_at else None
+                    }
+                    for member in sorted(group.members, key=lambda m: m.added_at) if group.members
+                ],
+                "created_at": group.created_at.isoformat() if group.created_at else None,
+                "updated_at": group.updated_at.isoformat() if group.updated_at else None
+            }
+            for group in groups
+        ]
+    }
 
 
 @app.get("/users/{user_id}")
@@ -3171,33 +3201,6 @@ async def delete_user_endpoint(user_id: str, db: AsyncSession = Depends(get_db))
 # USER GROUP MANAGEMENT
 # ============================================================================
 
-@app.get("/users/groups")
-async def list_user_groups(db: AsyncSession = Depends(get_db)):
-    """List all user groups with their members"""
-    groups = await get_all_user_groups(db)
-    return {
-        "groups": [
-            {
-                "id": str(group.id),
-                "name": group.name,
-                "description": group.description,
-                "color": group.color,
-                "permissions": group.permissions,
-                "member_count": len(group.members),
-                "members": [
-                    {
-                        "user_id": str(member.user_id),
-                        "role": member.role,
-                        "added_at": member.added_at.isoformat() if member.added_at else None
-                    }
-                    for member in sorted(group.members, key=lambda m: m.added_at)
-                ],
-                "created_at": group.created_at.isoformat() if group.created_at else None,
-                "updated_at": group.updated_at.isoformat() if group.updated_at else None
-            }
-            for group in groups
-        ]
-    }
 
 
 @app.post("/users/groups")
