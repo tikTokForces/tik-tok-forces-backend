@@ -380,6 +380,25 @@ async def create_api_log(
     return log
 
 
+async def get_api_logs(
+    db: AsyncSession,
+    endpoint: Optional[str] = None,
+    limit: int = 100,
+    offset: int = 0
+) -> List[APILog]:
+    """Get API logs with optional filtering"""
+    from database.models import APILog
+    query = select(APILog).order_by(desc(APILog.created_at))
+    
+    if endpoint:
+        query = query.where(APILog.endpoint == endpoint)
+    
+    query = query.limit(limit).offset(offset)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
 # ==================== JOB QUEUE OPERATIONS ====================
 
 async def enqueue_job(

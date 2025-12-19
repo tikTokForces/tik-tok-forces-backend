@@ -61,6 +61,7 @@ from database.crud import (
     get_job, 
     update_job_status,
     create_api_log,
+    get_api_logs,
     create_music_group,
     get_music_group,
     get_all_music_groups,
@@ -746,7 +747,85 @@ async def post_video_endpoint(
         "job_status": job.status,
         "videos_count": len(req.videos),
         "message": "Post request logged successfully. Videos will be posted using provided credentials.",
-        "logged_at": datetime.utcnow().isoformat()
+        "logged_at": datetime.utcnow().isoformat(),
+        "log_file": f"/opt/tik-tok-forces-backend/logs/post_videos_{datetime.utcnow().strftime('%Y%m%d')}.jsonl"
+    }
+
+
+@app.get("/job/{job_id}/post/logs")
+async def get_job_post_logs(
+    job_id: str,
+    limit: int = 50,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get publish logs for a specific job"""
+    try:
+        job_uuid = uuid.UUID(job_id)
+    except ValueError:
+        raise HTTPException(status_code=400, detail="Invalid job ID format")
+    
+    # Get logs for this job's post endpoint
+    logs = await get_api_logs(
+        db=db,
+        endpoint=f"/job/{job_id}/post",
+        limit=limit
+    )
+    
+    return {
+        "job_id": job_id,
+        "count": len(logs),
+        "logs": [
+            {
+                "id": str(log.id),
+                "endpoint": log.endpoint,
+                "method": log.method,
+                "request_body": log.request_body,
+                "response_status": log.response_status,
+                "response_body": log.response_body,
+                "ip_address": log.ip_address,
+                "user_agent": log.user_agent,
+                "execution_time_ms": log.execution_time_ms,
+                "created_at": log.created_at.isoformat() if log.created_at else None
+            }
+            for log in logs
+        ]
+    }
+
+
+@app.get("/logs/publish")
+async def get_publish_logs(
+    limit: int = 100,
+    offset: int = 0,
+    db: AsyncSession = Depends(get_db)
+):
+    """Get all publish logs (from /job/*/post endpoints)"""
+    logs = await get_api_logs(
+        db=db,
+        endpoint=None,  # Get all logs
+        limit=limit,
+        offset=offset
+    )
+    
+    # Filter only post logs
+    post_logs = [log for log in logs if "/post" in log.endpoint]
+    
+    return {
+        "count": len(post_logs),
+        "logs": [
+            {
+                "id": str(log.id),
+                "endpoint": log.endpoint,
+                "method": log.method,
+                "request_body": log.request_body,
+                "response_status": log.response_status,
+                "response_body": log.response_body,
+                "ip_address": log.ip_address,
+                "user_agent": log.user_agent,
+                "execution_time_ms": log.execution_time_ms,
+                "created_at": log.created_at.isoformat() if log.created_at else None
+            }
+            for log in post_logs
+        ]
     }
 
 
