@@ -1,5 +1,7 @@
 from fastapi import FastAPI, BackgroundTasks, HTTPException, Depends, UploadFile, File, Request
 from starlette.requests import Request
+from starlette.middleware.base import BaseHTTPMiddleware
+from starlette.responses import Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
@@ -141,9 +143,7 @@ app = FastAPI(title="TikTok Forces API", version="1.0.0")
 # This prevents blocking the event loop
 video_processing_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="video_processing")
 
-# Enable CORS for React frontend
-# Allow all origins for development and production
-# Note: allow_credentials must be False when using allow_origins=["*"]
+# CORS middleware - must be added before other middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins
@@ -153,6 +153,30 @@ app.add_middleware(
     expose_headers=["*"],  # Expose all headers
     max_age=3600,  # Cache preflight requests for 1 hour
 )
+
+# Additional middleware to ensure CORS headers are always present
+class CORSHeaderMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        # Handle preflight requests
+        if request.method == "OPTIONS":
+            response = Response()
+            response.headers["Access-Control-Allow-Origin"] = "*"
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
+            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Max-Age"] = "3600"
+            return response
+        
+        response = await call_next(request)
+        
+        # Ensure CORS headers are present
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "*"
+        
+        return response
+
+app.add_middleware(CORSHeaderMiddleware)
 
 
 # Application lifecycle events
