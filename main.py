@@ -143,13 +143,13 @@ app = FastAPI(title="TikTok Forces API", version="1.0.0")
 # This prevents blocking the event loop
 video_processing_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="video_processing")
 
-# CORS middleware - SIMPLIFIED configuration
-# This is the ONLY CORS middleware we need - FastAPI handles it correctly
+# CORS middleware - must be added FIRST
+# FastAPI CORSMiddleware handles all CORS automatically
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins
     allow_credentials=False,  # Must be False when using wildcard origins
-    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS", "HEAD"],  # Explicit methods
+    allow_methods=["*"],  # Allow all HTTP methods
     allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],  # Expose all headers
     max_age=3600,  # Cache preflight requests for 1 hour
