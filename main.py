@@ -1140,6 +1140,18 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                 music_outputs = processing_result["music_outputs"]
                 music_group_error = processing_result["music_group_error"]
                 
+                # Automatically assign users to videos based on priority
+                from database.crud import assign_users_to_videos
+                video_count = len(final_video_paths) if final_video_paths else 0
+                user_assignments = []
+                if video_count > 0:
+                    try:
+                        user_assignments = await assign_users_to_videos(bg_db, video_count, include_inactive=False)
+                        print(f"DEBUG: Assigned {len(user_assignments)} users to {video_count} videos", file=sys.stderr, flush=True)
+                    except Exception as e:
+                        import traceback
+                        print(f"WARNING: Failed to assign users to videos: {str(e)}\n{traceback.format_exc()}", file=sys.stderr, flush=True)
+                
                 # Update job as completed
                 import sys
                 print(f"DEBUG: Updating job {job.id} to completed", file=sys.stderr, flush=True)
@@ -1153,6 +1165,7 @@ async def process_media(req: ProcessRequest, background_tasks: BackgroundTasks, 
                         "count": req.count,
                         "videos": base_video_paths if base_video_paths else None,
                         "final_videos": final_video_paths if final_video_paths else None,
+                        "user_assignments": user_assignments,  # Automatically assigned users
                         "music_group": music_group_summary,
                         "music_group_outputs": music_outputs if music_outputs else None,
                         "music_group_error": music_group_error,
@@ -3043,6 +3056,7 @@ class CreateUserRequest(BaseModel):
     full_name: Optional[str] = None
     is_active: bool = True
     is_admin: bool = False
+    priority: int = 50  # Priority from 1 (highest) to 100 (lowest)
 
 
 class UpdateUserRequest(BaseModel):
@@ -3072,6 +3086,7 @@ async def list_users(
                 "id": str(user.id),
                 "username": user.username,
                 "email": user.email,
+                "priority": user.priority,
                 "full_name": user.full_name,
                 "is_active": user.is_active,
                 "is_admin": user.is_admin,
@@ -3121,7 +3136,8 @@ async def create_user_endpoint(req: CreateUserRequest, db: AsyncSession = Depend
             proxy_id=proxy_uuid,
             full_name=req.full_name,
             is_active=req.is_active,
-            is_admin=req.is_admin
+            is_admin=req.is_admin,
+            priority=req.priority
         )
         return {
             "id": str(user.id),
@@ -3130,6 +3146,7 @@ async def create_user_endpoint(req: CreateUserRequest, db: AsyncSession = Depend
             "full_name": user.full_name,
             "is_active": user.is_active,
             "is_admin": user.is_admin,
+            "priority": user.priority,
             "proxy_id": str(user.proxy_id),
             "created_at": user.created_at.isoformat() if user.created_at else None
         }

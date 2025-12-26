@@ -1024,6 +1024,7 @@ async def create_user(
     full_name: Optional[str] = None,
     is_active: bool = True,
     is_admin: bool = False,
+    priority: int = 50,
     user_metadata: Optional[Dict[str, Any]] = None
 ) -> User:
     """Create a new user (proxy is required)"""
@@ -1031,6 +1032,10 @@ async def create_user(
     proxy = await get_proxy(db, proxy_id)
     if not proxy:
         raise ValueError("Proxy not found")
+    
+    # Validate priority range
+    if priority < 1 or priority > 100:
+        raise ValueError("Priority must be between 1 and 100")
     
     user = User(
         id=uuid.uuid4(),
@@ -1041,6 +1046,7 @@ async def create_user(
         full_name=full_name,
         is_active=is_active,
         is_admin=is_admin,
+        priority=priority,
         user_metadata=user_metadata,
         created_at=datetime.utcnow(),
         updated_at=datetime.utcnow()
@@ -1094,6 +1100,73 @@ async def get_all_users(
     
     result = await db.execute(query)
     return list(result.scalars().all())
+
+
+async def get_users_by_priority(
+    db: AsyncSession,
+    limit: Optional[int] = None,
+    include_inactive: bool = False
+) -> List[User]:
+    """Get users ordered by priority (1 = highest priority, 100 = lowest)"""
+    from sqlalchemy.orm import selectinload
+    query = select(User).options(selectinload(User.proxy)).order_by(User.priority.asc(), User.created_at.asc())
+    
+    if not include_inactive:
+        query = query.where(User.is_active == True)
+    
+    if limit:
+        query = query.limit(limit)
+    
+    result = await db.execute(query)
+    return list(result.scalars().all())
+
+
+async def assign_users_to_videos(
+    db: AsyncSession,
+    video_count: int,
+    include_inactive: bool = False
+) -> List[Dict[str, Any]]:
+    """
+    Automatically assign users to videos based on priority.
+    Returns list of assignments: [{"video_index": 0, "user_id": "...", "user": {...}, "proxy": {...}}, ...]
+    """
+    # Get users ordered by priority (1 = highest)
+    users = await get_users_by_priority(db, limit=video_count, include_inactive=include_inactive)
+    
+    if not users:
+        return []
+    
+    assignments = []
+    for i in range(video_count):
+        # Cycle through users if we have more videos than users
+        user = users[i % len(users)]
+        
+        # Load proxy relationship if not already loaded
+        if not hasattr(user, 'proxy') or user.proxy is None:
+            proxy = await get_proxy(db, user.proxy_id)
+        else:
+            proxy = user.proxy
+        
+        assignments.append({
+            "video_index": i,
+            "user_id": str(user.id),
+            "user": {
+                "id": str(user.id),
+                "username": user.username,
+                "email": user.email,
+                "priority": user.priority,
+                "proxy_id": str(user.proxy_id)
+            },
+            "proxy": {
+                "id": str(proxy.id) if proxy else None,
+                "login": proxy.login if proxy else None,
+                "password": proxy.password if proxy else None,
+                "ip": proxy.ip if proxy else None,
+                "port": proxy.port if proxy else None
+            } if proxy else None
+        })
+    
+    return assignments
 
 
 async def update_user(

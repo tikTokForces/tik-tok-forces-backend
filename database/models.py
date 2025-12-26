@@ -2,8 +2,8 @@
 Database models for TikTok Forces API
 Using SQLAlchemy with async support
 """
-from sqlalchemy import Column, String, Integer, BigInteger, Float, Boolean, Text, TIMESTAMP, ForeignKey, ARRAY, UniqueConstraint
-from sqlalchemy.dialects.postgresql import UUID, JSONB
+from sqlalchemy import Column, String, Integer, BigInteger, Float, Boolean, Text, TIMESTAMP, ForeignKey, UniqueConstraint, JSON, TypeDecorator
+from sqlalchemy.dialects.postgresql import UUID as PostgresUUID
 from sqlalchemy.ext.declarative import declarative_base
 from sqlalchemy.orm import relationship
 from datetime import datetime
@@ -12,13 +12,48 @@ import uuid
 Base = declarative_base()
 
 
+# Database-agnostic UUID type that works with both SQLite and PostgreSQL
+class GUID(TypeDecorator):
+    """Platform-independent GUID type.
+    Uses PostgreSQL's UUID type when available, otherwise uses String(36).
+    """
+    impl = String
+    cache_ok = True
+
+    def load_dialect_impl(self, dialect):
+        if dialect.name == 'postgresql':
+            return dialect.type_descriptor(PostgresUUID(as_uuid=True))
+        else:
+            return dialect.type_descriptor(String(36))
+
+    def process_bind_param(self, value, dialect):
+        if value is None:
+            return value
+        elif dialect.name == 'postgresql':
+            # PostgreSQL UUID type can handle UUID objects directly
+            return value if isinstance(value, uuid.UUID) else uuid.UUID(value) if value else None
+        else:
+            # SQLite stores as string
+            return str(value) if isinstance(value, uuid.UUID) else value
+
+    def process_result_value(self, value, dialect):
+        if value is None:
+            return value
+        elif dialect.name == 'postgresql':
+            # PostgreSQL returns UUID objects directly
+            return value if isinstance(value, uuid.UUID) else uuid.UUID(value) if value else None
+        else:
+            # SQLite returns strings, convert to UUID
+            return uuid.UUID(value) if not isinstance(value, uuid.UUID) else value
+
+
 class Job(Base):
     """
     Stores all processing jobs (replaces in-memory jobs_store)
     """
     __tablename__ = "jobs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     job_type = Column(String(100), nullable=False, index=True)  # 'process', 'footages_add', 'music_add', etc.
     status = Column(String(50), nullable=False, default='pending', index=True)  # 'pending', 'processing', 'completed', 'failed', 'cancelled'
     
@@ -31,8 +66,8 @@ class Job(Base):
     # Processing details
     error_message = Column(Text, nullable=True)
     progress_percentage = Column(Integer, default=0)
-    input_params = Column(JSONB, nullable=True)  # Store all request parameters
-    output_result = Column(JSONB, nullable=True)  # Store output paths and metadata
+    input_params = Column(JSON, nullable=True)  # Store all request parameters
+    output_result = Column(JSON, nullable=True)  # Store output paths and metadata
     processing_time_seconds = Column(Integer, nullable=True)
     
     # Relationships
@@ -49,7 +84,7 @@ class Video(Base):
     """
     __tablename__ = "videos"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     original_filename = Column(String(500), nullable=False)
     file_path = Column(String(1000), nullable=False, unique=True)
     
@@ -65,7 +100,7 @@ class Video(Base):
     
     # Metadata
     thumbnail_path = Column(String(1000), nullable=True)
-    video_metadata = Column(JSONB, nullable=True)  # Additional video metadata
+    video_metadata = Column(JSON, nullable=True)  # Additional video metadata
     
     # Timestamps
     uploaded_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, index=True)
@@ -85,13 +120,13 @@ class ProcessingHistory(Base):
     """
     __tablename__ = "processing_history"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True)
-    input_video_id = Column(UUID(as_uuid=True), ForeignKey("videos.id", ondelete="SET NULL"), nullable=True, index=True)
-    output_video_id = Column(UUID(as_uuid=True), ForeignKey("videos.id", ondelete="SET NULL"), nullable=True, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"), nullable=False, index=True)
+    input_video_id = Column(GUID(), ForeignKey("videos.id", ondelete="SET NULL"), nullable=True, index=True)
+    output_video_id = Column(GUID(), ForeignKey("videos.id", ondelete="SET NULL"), nullable=True, index=True)
     
     processing_type = Column(String(100), nullable=False)  # 'metadata_unify', 'footages', 'music', etc.
-    parameters_used = Column(JSONB, nullable=True)
+    parameters_used = Column(JSON, nullable=True)
     created_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, index=True)
     
     # Relationships
@@ -109,7 +144,7 @@ class Asset(Base):
     """
     __tablename__ = "assets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     asset_type = Column(String(50), nullable=False, index=True)  # 'footage', 'music', 'watermark', 'subtitle', 'transition'
     name = Column(String(500), nullable=False)
     file_path = Column(String(1000), nullable=False, unique=True)
@@ -121,8 +156,8 @@ class Asset(Base):
     
     # Metadata and organization
     is_public = Column(Boolean, default=False)  # shared library vs private
-    tags = Column(ARRAY(String), nullable=True)  # for searchability
-    asset_metadata = Column(JSONB, nullable=True)
+    tags = Column(JSON, nullable=True)  # for searchability (stored as JSON array)
+    asset_metadata = Column(JSON, nullable=True)
     
     # Timestamps
     created_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, index=True)
@@ -138,11 +173,11 @@ class ProcessingPreset(Base):
     """
     __tablename__ = "processing_presets"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     name = Column(String(200), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     preset_type = Column(String(100), nullable=False, index=True)  # 'process', 'footages', 'music', etc.
-    parameters = Column(JSONB, nullable=False)  # All the processing parameters
+    parameters = Column(JSON, nullable=False)  # All the processing parameters
     
     is_default = Column(Boolean, default=False)
     usage_count = Column(Integer, default=0)
@@ -161,14 +196,14 @@ class APILog(Base):
     """
     __tablename__ = "api_logs"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     endpoint = Column(String(500), nullable=False, index=True)
     method = Column(String(10), nullable=False)
     
     # Request/Response data
-    request_body = Column(JSONB, nullable=True)
+    request_body = Column(JSON, nullable=True)
     response_status = Column(Integer, nullable=True)
-    response_body = Column(JSONB, nullable=True)
+    response_body = Column(JSON, nullable=True)
     
     # Client info
     ip_address = Column(String(50), nullable=True)
@@ -188,8 +223,8 @@ class JobQueue(Base):
     """
     __tablename__ = "job_queue"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    job_id = Column(UUID(as_uuid=True), ForeignKey("jobs.id", ondelete="CASCADE"), unique=True, nullable=False)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    job_id = Column(GUID(), ForeignKey("jobs.id", ondelete="CASCADE"), unique=True, nullable=False)
     
     priority = Column(Integer, default=5, index=True)  # 1-10, higher = more important
     retry_count = Column(Integer, default=0)
@@ -212,7 +247,7 @@ class MusicGroup(Base):
     """
     __tablename__ = "music_groups"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     name = Column(String(200), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), nullable=True)  # Hex color code for UI
@@ -234,8 +269,8 @@ class MusicGroupMember(Base):
     """
     __tablename__ = "music_group_members"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    group_id = Column(UUID(as_uuid=True), ForeignKey("music_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    group_id = Column(GUID(), ForeignKey("music_groups.id", ondelete="CASCADE"), nullable=False, index=True)
     music_filename = Column(String(500), nullable=False)  # Name of music file in assets/musics/
     
     # Order within group
@@ -262,7 +297,7 @@ class WatermarkGroup(Base):
     """
     __tablename__ = "watermark_groups"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     name = Column(String(200), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), nullable=True)
@@ -282,8 +317,8 @@ class WatermarkGroupMember(Base):
     """
     __tablename__ = "watermark_group_members"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    group_id = Column(UUID(as_uuid=True), ForeignKey("watermark_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    group_id = Column(GUID(), ForeignKey("watermark_groups.id", ondelete="CASCADE"), nullable=False, index=True)
     watermark_filename = Column(String(500), nullable=False)
     order = Column(Integer, default=0, index=True)
     added_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, index=True)
@@ -304,7 +339,7 @@ class FootageGroup(Base):
     """
     __tablename__ = "footage_groups"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     name = Column(String(200), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), nullable=True)
@@ -324,8 +359,8 @@ class FootageGroupMember(Base):
     """
     __tablename__ = "footage_group_members"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    group_id = Column(UUID(as_uuid=True), ForeignKey("footage_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    group_id = Column(GUID(), ForeignKey("footage_groups.id", ondelete="CASCADE"), nullable=False, index=True)
     footage_filename = Column(String(500), nullable=False)
     order = Column(Integer, default=0, index=True)
     added_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, index=True)
@@ -346,7 +381,7 @@ class Proxy(Base):
     """
     __tablename__ = "proxies"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     login = Column(String(200), nullable=False)
     password = Column(String(255), nullable=False)
     ip = Column(String(50), nullable=False, index=True)  # IP address
@@ -370,7 +405,7 @@ class User(Base):
     """
     __tablename__ = "users"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     username = Column(String(100), nullable=False, unique=True, index=True)
     password_hash = Column(String(255), nullable=False)  # Hashed password
     email = Column(String(255), nullable=False, unique=True, index=True)  # Now required
@@ -378,11 +413,14 @@ class User(Base):
     is_active = Column(Boolean, default=True, index=True)
     is_admin = Column(Boolean, default=False, index=True)
     
+    # Priority for automatic user assignment (1 = highest priority, 100 = lowest)
+    priority = Column(Integer, default=50, nullable=False, index=True)
+    
     # Required proxy relationship
-    proxy_id = Column(UUID(as_uuid=True), ForeignKey("proxies.id", ondelete="RESTRICT"), nullable=False, index=True)
+    proxy_id = Column(GUID(), ForeignKey("proxies.id", ondelete="RESTRICT"), nullable=False, index=True)
     
     # Metadata
-    user_metadata = Column(JSONB, nullable=True)
+    user_metadata = Column(JSON, nullable=True)
     
     # Timestamps
     created_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, index=True)
@@ -403,13 +441,13 @@ class UserGroup(Base):
     """
     __tablename__ = "user_groups"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     name = Column(String(200), nullable=False, unique=True)
     description = Column(Text, nullable=True)
     color = Column(String(7), nullable=True)  # Hex color code for UI
     
     # Permissions/metadata
-    permissions = Column(JSONB, nullable=True)  # Store group permissions as JSON
+    permissions = Column(JSON, nullable=True)  # Store group permissions as JSON
     
     # Timestamps
     created_at = Column(TIMESTAMP, nullable=False, default=datetime.utcnow, index=True)
@@ -428,9 +466,9 @@ class UserGroupMember(Base):
     """
     __tablename__ = "user_group_members"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    group_id = Column(UUID(as_uuid=True), ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
+    id = Column(GUID(), primary_key=True, default=uuid.uuid4)
+    group_id = Column(GUID(), ForeignKey("user_groups.id", ondelete="CASCADE"), nullable=False, index=True)
+    user_id = Column(GUID(), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     
     # Role within group (optional)
     role = Column(String(50), nullable=True)  # e.g., 'admin', 'member', 'viewer'
