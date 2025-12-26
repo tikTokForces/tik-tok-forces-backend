@@ -45,7 +45,7 @@ alembic upgrade head
 
 # Setup systemd service if it doesn't exist
 if [ ! -f "/etc/systemd/system/${SERVICE_NAME}.service" ]; then
-    echo -e "${YELLOW}🔧 Setting up systemd service${NC}"
+echo -e "${YELLOW}🔧 Setting up systemd service${NC}"
     cat > "/etc/systemd/system/${SERVICE_NAME}.service" << EOF
 [Unit]
 Description=TikTok Forces API Backend
@@ -55,10 +55,8 @@ After=network.target postgresql.service
 Type=simple
 User=root
 WorkingDirectory=$PROJECT_DIR
-Environment="PATH=$PROJECT_DIR/venv/bin"
-Environment="DATABASE_URL=\${DATABASE_URL:-postgresql+asyncpg://tikforces:tikforces@localhost:5432/tikforces}"
-Environment="VIDEO_PROCESSOR_BASE=\${VIDEO_PROCESSOR_BASE:-/opt/tik-tok-forces-video-processor}"
-Environment="VIDEO_PROCESSOR_VENV=\${VIDEO_PROCESSOR_VENV:-/opt/tik-tok-forces-video-processor/.venv/bin/python}"
+EnvironmentFile=$PROJECT_DIR/.env
+Environment="PATH=$PROJECT_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=$PROJECT_DIR/venv/bin/uvicorn main:app --host 0.0.0.0 --port $BACKEND_PORT
 Restart=always
 RestartSec=10
@@ -80,10 +78,8 @@ After=network.target postgresql.service
 Type=simple
 User=root
 WorkingDirectory=$PROJECT_DIR
-Environment="PATH=$PROJECT_DIR/venv/bin"
-Environment="DATABASE_URL=\${DATABASE_URL:-postgresql+asyncpg://tikforces:tikforces@localhost:5432/tikforces}"
-Environment="VIDEO_PROCESSOR_BASE=\${VIDEO_PROCESSOR_BASE:-/opt/tik-tok-forces-video-processor}"
-Environment="VIDEO_PROCESSOR_VENV=\${VIDEO_PROCESSOR_VENV:-/opt/tik-tok-forces-video-processor/.venv/bin/python}"
+EnvironmentFile=$PROJECT_DIR/.env
+Environment="PATH=$PROJECT_DIR/venv/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 ExecStart=$PROJECT_DIR/venv/bin/uvicorn main:app --host 0.0.0.0 --port $BACKEND_PORT
 Restart=always
 RestartSec=10
@@ -91,7 +87,7 @@ RestartSec=10
 [Install]
 WantedBy=multi-user.target
 EOF
-    systemctl daemon-reload
+systemctl daemon-reload
 fi
 
 # Restart service
