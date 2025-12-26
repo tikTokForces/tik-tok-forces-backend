@@ -155,27 +155,34 @@ app.add_middleware(
 )
 
 # Additional middleware to ensure CORS headers are always present
+# This runs AFTER CORSMiddleware to ensure headers are set
 class CORSHeaderMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Handle preflight requests
+        # Handle preflight OPTIONS requests explicitly
         if request.method == "OPTIONS":
-            response = Response()
+            response = Response(status_code=204)
             response.headers["Access-Control-Allow-Origin"] = "*"
             response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
-            response.headers["Access-Control-Allow-Headers"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
             response.headers["Access-Control-Max-Age"] = "3600"
+            response.headers["Access-Control-Allow-Credentials"] = "false"
             return response
         
         response = await call_next(request)
         
-        # Ensure CORS headers are present
-        response.headers["Access-Control-Allow-Origin"] = "*"
-        response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
-        response.headers["Access-Control-Allow-Headers"] = "*"
-        response.headers["Access-Control-Expose-Headers"] = "*"
+        # Ensure CORS headers are present in all responses
+        if "Access-Control-Allow-Origin" not in response.headers:
+            response.headers["Access-Control-Allow-Origin"] = "*"
+        if "Access-Control-Allow-Methods" not in response.headers:
+            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
+        if "Access-Control-Allow-Headers" not in response.headers:
+            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        if "Access-Control-Expose-Headers" not in response.headers:
+            response.headers["Access-Control-Expose-Headers"] = "*"
         
         return response
 
+# Add CORS header middleware AFTER CORS middleware
 app.add_middleware(CORSHeaderMiddleware)
 
 
