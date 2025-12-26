@@ -141,14 +141,16 @@ app = FastAPI(title="TikTok Forces API", version="1.0.0")
 # This prevents blocking the event loop
 video_processing_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="video_processing")
 
-# Enable CORS for React frontend (allow all origins for development)
+# Enable CORS for React frontend
+# Allow all origins for development and production
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"],  # Allow all origins for development
-    allow_credentials=False,  # Must be False when using allow_origins=["*"]
-    allow_methods=["*"],
-    allow_headers=["*"],
-    expose_headers=["*"],
+    allow_origins=["*"],  # Allow all origins
+    allow_credentials=True,  # Allow credentials (cookies, auth headers)
+    allow_methods=["GET", "POST", "PUT", "PATCH", "DELETE", "OPTIONS"],  # All HTTP methods
+    allow_headers=["*"],  # Allow all headers
+    expose_headers=["*"],  # Expose all headers
+    max_age=3600,  # Cache preflight requests for 1 hour
 )
 
 
