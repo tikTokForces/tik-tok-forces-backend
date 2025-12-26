@@ -143,46 +143,43 @@ app = FastAPI(title="TikTok Forces API", version="1.0.0")
 # This prevents blocking the event loop
 video_processing_executor = ThreadPoolExecutor(max_workers=2, thread_name_prefix="video_processing")
 
-# CORS middleware - must be added before other middleware
+# CORS middleware - must be added FIRST, before other middleware
+# This handles all CORS preflight and actual requests
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins
     allow_credentials=False,  # Must be False when using wildcard origins
     allow_methods=["*"],  # Allow all HTTP methods
-    allow_headers=["*"],  # Allow all headers including Content-Type, Authorization, etc.
+    allow_headers=["*"],  # Allow all headers
     expose_headers=["*"],  # Expose all headers
     max_age=3600,  # Cache preflight requests for 1 hour
 )
 
-# Additional middleware to ensure CORS headers are always present
-# This runs AFTER CORSMiddleware to ensure headers are set
+# Additional middleware to ensure CORS headers are ALWAYS present
+# This runs AFTER CORSMiddleware to guarantee headers exist
 class CORSHeaderMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
-        # Handle preflight OPTIONS requests explicitly
+        # Handle preflight OPTIONS requests - return immediately
         if request.method == "OPTIONS":
             response = Response(status_code=204)
             response.headers["Access-Control-Allow-Origin"] = "*"
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+            response.headers["Access-Control-Allow-Methods"] = "*"
+            response.headers["Access-Control-Allow-Headers"] = "*"
             response.headers["Access-Control-Max-Age"] = "3600"
-            response.headers["Access-Control-Allow-Credentials"] = "false"
             return response
         
+        # Process the request
         response = await call_next(request)
         
-        # Ensure CORS headers are present in all responses
-        if "Access-Control-Allow-Origin" not in response.headers:
-            response.headers["Access-Control-Allow-Origin"] = "*"
-        if "Access-Control-Allow-Methods" not in response.headers:
-            response.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, PATCH, DELETE, OPTIONS, HEAD"
-        if "Access-Control-Allow-Headers" not in response.headers:
-            response.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
-        if "Access-Control-Expose-Headers" not in response.headers:
-            response.headers["Access-Control-Expose-Headers"] = "*"
+        # Force CORS headers to be present (override if needed)
+        response.headers["Access-Control-Allow-Origin"] = "*"
+        response.headers["Access-Control-Allow-Methods"] = "*"
+        response.headers["Access-Control-Allow-Headers"] = "*"
+        response.headers["Access-Control-Expose-Headers"] = "*"
         
         return response
 
-# Add CORS header middleware AFTER CORS middleware
+# Add CORS header middleware AFTER CORS middleware (runs in reverse order)
 app.add_middleware(CORSHeaderMiddleware)
 
 
@@ -200,6 +197,17 @@ async def shutdown_event():
     await close_db()
     print("✅ Database connections closed")
 
+
+@app.options("/{full_path:path}")
+async def options_handler(full_path: str):
+    """Handle all OPTIONS requests for CORS preflight"""
+    from fastapi.responses import Response
+    response = Response(status_code=204)
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Methods"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "*"
+    response.headers["Access-Control-Max-Age"] = "3600"
+    return response
 
 @app.get("/")
 async def root():
