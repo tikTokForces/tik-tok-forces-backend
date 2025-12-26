@@ -3073,6 +3073,7 @@ class UpdateUserRequest(BaseModel):
     full_name: Optional[str] = None
     is_active: Optional[bool] = None
     is_admin: Optional[bool] = None
+    priority: Optional[int] = None  # Priority from 1 (highest) to 100 (lowest)
 
 
 @app.get("/users")
@@ -3216,6 +3217,7 @@ async def get_user_endpoint(user_id: str, db: AsyncSession = Depends(get_db)):
         "full_name": user.full_name,
         "is_active": user.is_active,
         "is_admin": user.is_admin,
+        "priority": user.priority,
         "proxy_id": str(user.proxy_id),
         "proxy": {
             "id": str(user.proxy.id),
@@ -3276,6 +3278,11 @@ async def update_user_endpoint(user_id: str, req: UpdateUserRequest, db: AsyncSe
     if req.password:
         password_hash = hash_password(req.password)
     
+    # Validate priority if provided
+    if req.priority is not None:
+        if not 1 <= req.priority <= 100:
+            raise HTTPException(status_code=400, detail="Priority must be between 1 and 100")
+    
     try:
         user = await update_user(
             db=db,
@@ -3286,7 +3293,8 @@ async def update_user_endpoint(user_id: str, req: UpdateUserRequest, db: AsyncSe
             proxy_id=proxy_uuid,
             full_name=req.full_name,
             is_active=req.is_active,
-            is_admin=req.is_admin
+            is_admin=req.is_admin,
+            priority=req.priority
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))

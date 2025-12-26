@@ -1179,6 +1179,7 @@ async def update_user(
     full_name: Optional[str] = None,
     is_active: Optional[bool] = None,
     is_admin: Optional[bool] = None,
+    priority: Optional[int] = None,
     user_metadata: Optional[Dict[str, Any]] = None
 ) -> Optional[User]:
     """Update a user"""
@@ -1204,6 +1205,10 @@ async def update_user(
         user.is_active = is_active
     if is_admin is not None:
         user.is_admin = is_admin
+    if priority is not None:
+        if not 1 <= priority <= 100:
+            raise ValueError("Priority must be between 1 and 100")
+        user.priority = priority
     if user_metadata is not None:
         user.user_metadata = user_metadata
     
