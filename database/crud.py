@@ -1194,8 +1194,10 @@ async def update_user(
         user.username = username
     if password_hash is not None:
         user.password_hash = password_hash
+    # Always update tiktok_password if provided (including empty string to clear it)
+    # Use a sentinel value to distinguish between "not provided" and "empty string"
     if tiktok_password is not None:
-        user.tiktok_password = tiktok_password
+        user.tiktok_password = tiktok_password if tiktok_password else None
     if email is not None:
         user.email = email
     if proxy_id is not None:
