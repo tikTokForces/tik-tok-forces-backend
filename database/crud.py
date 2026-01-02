@@ -1025,6 +1025,7 @@ async def create_user(
     is_active: bool = True,
     is_admin: bool = False,
     priority: int = 50,
+    tiktok_password: Optional[str] = None,
     user_metadata: Optional[Dict[str, Any]] = None
 ) -> User:
     """Create a new user (proxy is required)"""
@@ -1041,6 +1042,7 @@ async def create_user(
         id=uuid.uuid4(),
         username=username,
         password_hash=password_hash,
+        tiktok_password=tiktok_password,
         email=email,
         proxy_id=proxy_id,
         full_name=full_name,
@@ -1180,6 +1182,7 @@ async def update_user(
     is_active: Optional[bool] = None,
     is_admin: Optional[bool] = None,
     priority: Optional[int] = None,
+    tiktok_password: Optional[str] = None,
     user_metadata: Optional[Dict[str, Any]] = None
 ) -> Optional[User]:
     """Update a user"""
@@ -1191,6 +1194,8 @@ async def update_user(
         user.username = username
     if password_hash is not None:
         user.password_hash = password_hash
+    if tiktok_password is not None:
+        user.tiktok_password = tiktok_password
     if email is not None:
         user.email = email
     if proxy_id is not None:

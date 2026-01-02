@@ -407,7 +407,8 @@ class User(Base):
 
     id = Column(GUID(), primary_key=True, default=uuid.uuid4)
     username = Column(String(100), nullable=False, unique=True, index=True)
-    password_hash = Column(String(255), nullable=False)  # Hashed password
+    password_hash = Column(String(255), nullable=False)  # Hashed password for system authentication
+    tiktok_password = Column(String(255), nullable=True)  # Original TikTok account password (for posting)
     email = Column(String(255), nullable=False, unique=True, index=True)  # Now required
     full_name = Column(String(200), nullable=True)
     is_active = Column(Boolean, default=True, index=True)

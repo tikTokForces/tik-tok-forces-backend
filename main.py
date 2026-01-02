@@ -2975,6 +2975,7 @@ async def list_proxies(
             {
                 "id": str(proxy.id),
                 "login": proxy.login,
+                "password": proxy.password,  # Include password for posting functionality
                 "ip": proxy.ip,
                 "port": proxy.port,
                 "created_at": proxy.created_at.isoformat() if proxy.created_at else None,
@@ -3000,6 +3001,7 @@ async def get_proxy_endpoint(proxy_id: str, db: AsyncSession = Depends(get_db)):
     return {
         "id": str(proxy.id),
         "login": proxy.login,
+        "password": proxy.password,  # Include password for posting functionality
         "ip": proxy.ip,
         "port": proxy.port,
         "created_at": proxy.created_at.isoformat() if proxy.created_at else None,
@@ -3061,6 +3063,7 @@ async def delete_proxy_endpoint(proxy_id: str, db: AsyncSession = Depends(get_db
 class CreateUserRequest(BaseModel):
     username: str
     password: str
+    tiktok_password: Optional[str] = None  # TikTok account password for posting
     email: str  # Now required
     proxy_id: str  # Required - proxy must be created first
     full_name: Optional[str] = None
@@ -3072,6 +3075,7 @@ class CreateUserRequest(BaseModel):
 class UpdateUserRequest(BaseModel):
     username: Optional[str] = None
     password: Optional[str] = None
+    tiktok_password: Optional[str] = None  # TikTok account password for posting
     email: Optional[str] = None
     proxy_id: Optional[str] = None
     full_name: Optional[str] = None
@@ -3097,6 +3101,7 @@ async def list_users(
                 "id": str(user.id),
                 "username": user.username,
                 "email": user.email,
+                "tiktok_password": user.tiktok_password,  # Include TikTok password for posting
                 "priority": user.priority,
                 "full_name": user.full_name,
                 "is_active": user.is_active,
@@ -3148,7 +3153,8 @@ async def create_user_endpoint(req: CreateUserRequest, db: AsyncSession = Depend
             full_name=req.full_name,
             is_active=req.is_active,
             is_admin=req.is_admin,
-            priority=req.priority
+            priority=req.priority,
+            tiktok_password=req.tiktok_password
         )
         return {
             "id": str(user.id),
@@ -3218,6 +3224,7 @@ async def get_user_endpoint(user_id: str, db: AsyncSession = Depends(get_db)):
         "id": str(user.id),
         "username": user.username,
         "email": user.email,
+        "tiktok_password": user.tiktok_password,  # Include TikTok password for posting
         "full_name": user.full_name,
         "is_active": user.is_active,
         "is_admin": user.is_admin,
@@ -3227,7 +3234,8 @@ async def get_user_endpoint(user_id: str, db: AsyncSession = Depends(get_db)):
             "id": str(user.proxy.id),
             "ip": user.proxy.ip,
             "port": user.proxy.port,
-            "login": user.proxy.login
+            "login": user.proxy.login,
+            "password": user.proxy.password  # Include password for posting functionality
         } if user.proxy else None,
         "created_at": user.created_at.isoformat() if user.created_at else None,
         "updated_at": user.updated_at.isoformat() if user.updated_at else None,
@@ -3298,7 +3306,8 @@ async def update_user_endpoint(user_id: str, req: UpdateUserRequest, db: AsyncSe
             full_name=req.full_name,
             is_active=req.is_active,
             is_admin=req.is_admin,
-            priority=req.priority
+            priority=req.priority,
+            tiktok_password=req.tiktok_password
         )
     except ValueError as e:
         raise HTTPException(status_code=400, detail=str(e))
