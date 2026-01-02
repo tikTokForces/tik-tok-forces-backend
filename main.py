@@ -617,6 +617,10 @@ class VideoPostItem(BaseModel):
 class PostVideoRequest(BaseModel):
     """Request model for posting videos - array of video-user-proxy pairs"""
     videos: list[VideoPostItem]  # Array of video objects, each with its own user and proxy
+    time_period_start: Optional[str] = None  # Start date for posting period (ISO format or DD.MM.YYYY)
+    time_period_end: Optional[str] = None  # End date for posting period (ISO format or DD.MM.YYYY)
+    interval_min: Optional[int] = None  # Minimum interval in minutes
+    interval_max: Optional[int] = None  # Maximum interval in minutes
 
 
 @app.post("/job/{job_id}/post")
